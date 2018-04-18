@@ -47,11 +47,18 @@
 	     :spans (make-array height :fill-pointer nil :adjustable nil :initial-element 0)
 	     :forwards (make-array height :fill-pointer nil :adjustable nil :initial-element nil)))
 
-(defun init-skip-list (size)
-  (let ((height (truncate (+ 1 (log size 2.71828)))))
-    (make-skip-list :height height
-		    :length 0
-		    :node-head (init-node-head height))))
+(defun init-skip-list (size &optional (preallocate nil))
+  (let* ((height (truncate (+ 1 (log size 2.71828))))
+	 (skip-list (make-skip-list :height height
+				    :length 0
+				    :node-head (init-node-head height))))
+    ;; Preallocate nodes
+    (when preallocate
+      (loop
+	 :for i :from 0 :below size
+	 :do (progn
+	       (insert skip-list 0 nil))))
+    skip-list))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -73,11 +80,16 @@
 	nil
 	node)))
 
+;; Raise error?
 (defun get-nth-data (sl-list i)
-  (ne-data (nth sl-list i)))
+  (let ((n (nth sl-list i)))
+    (when n
+      (ne-data n))))
 
 (defun set-nth-data (sl-list i data)
-  (setf (ne-data (nth sl-list i)) data))
+  (let ((n (nth sl-list i)))
+    (when n
+      (setf (ne-data n) data))))
 
 (defun insert (sl-list i data)
   
@@ -195,7 +207,7 @@
     (loop
        :for i :from 0 :below n
        :do (progn
-	     (insert sl 0 0)))
+	     (insert sl 0 "before")))
 
     (format t "~a~%" (sl-length sl))
     
@@ -212,13 +224,12 @@
 	 :do (progn
 	       (insert sl 0 i))))
 
-    (when t
-      (format t "Delete ~a elements...~%~%" n)
-      (loop :for i :from 0 :below n
-	 :do (progn
-	       (delete sl 0))))
+    (format t "Length: ~a~%" (sl-length sl))
 
-    (format t "~a~%" (sl-length sl))
+    ;; Make nth zero based
+    (format t "Before: ~a~%" (get-nth-data sl 1))
+    (set-nth-data sl 1 "hello")
+    (format t "After: ~a~%" (set-nth-data sl 1))
     
     (loop :for key :being :the :hash-keys :of *tracker*
        :using (hash-value value)
@@ -228,4 +239,10 @@
 		   (coerce (* (/ value n) 100) 'single-float)
 		   #\%))
 
+    (when t
+      (format t "Delete ~a elements...~%~%" n)
+      (loop :for i :from 0 :below n
+	 :do (progn
+	       (delete sl 0))))
+    
     t))
