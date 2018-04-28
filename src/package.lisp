@@ -5,7 +5,8 @@
 (defpackage :skip-list
   (:use #:cl)
   (:shadow #:nth
-	   #:delete)
+	   #:delete
+	   #:length)
   (:export #:skip-list
            #:node
            #:init-skip-list
@@ -14,6 +15,10 @@
            #:set-nth-data
            #:insert
            #:delete
-	   #:sl-length
 	   #:nth
-           #:test))
+           #:test
+
+	   #:sl-length
+	   #:sl-node-head
+	   #:ne-forwards
+	   #:ne-data))
