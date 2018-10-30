@@ -122,14 +122,13 @@
 	     (when (<= level height-new)
 	       
 	       ;; Link new-node to previous-node's forward
-	       (setf (aref (ne-forwards node-new) level) (aref (ne-forwards node) level))
 	       ;; Link previous-node's forward to node-new
-	       (setf (aref (ne-forwards node) level) node-new)
 	       ;; Update node-new's span = prev - (new - prev)
-	       (setf (aref (ne-spans node-new) level) (- (aref (ne-spans node) level)
-							 (- i x)))
 	       ;; Update previous node's span
-	       (setf (aref (ne-spans node) level) (- i x)))))
+	       (setf (aref (ne-forwards node-new) level) (aref (ne-forwards node) level)
+		     (aref (ne-forwards node) level) node-new
+		     (aref (ne-spans node-new) level) (- (aref (ne-spans node) level) (- i x))
+		     (aref (ne-spans node) level) (- i x)))))
     
     (incf (sl-length sl-list))
     node-new))
