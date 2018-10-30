@@ -4,10 +4,13 @@
 
 (declaim (optimize (speed 3) (debug 0) (safety 0)))
 
-(defconstant +e+ 2.71828)
+(defconstant +e+ (exp 1)) ; Euler's number = ~2.7182817
+(defconstant +1/e+ (/ 1.0 +e+))
 
-;; Each node contains lanes which containers pointers to other nodes on that
-;; respective level
+(setf *random-state* (make-random-state t))
+
+;; Each node contains lanes which containers pointers to other nodes 
+;; on that respective level
 (defstruct (node (:conc-name ne-))
   data      ; arbitrary data
   spans     ; dist to next node for each lane/level
@@ -18,16 +21,11 @@
   length
   node-head)
 
-(setf *random-state* (make-random-state t))
-
-;; (defun random-from-range (start end)
-;;   (+ start (random (+ 1 (- end start)))))
-
 (declaim (inline generate-random-level))
 (defun generate-random-level (height)
   (loop
      :with level := 1 ; 0 contains all nodes so start at 1
-     :while (and (< (random 1.0) 0.36787968862663156) ; p = 0.5, e=2.71828, 1/e = <-
+     :while (and (< (random 1.0) +1/e+) ; p = 0.5, e=2.71828, 1/e = <-
 		 (< level (1- height)))
      :do (incf level)
      :finally (return-from generate-random-level level)))
@@ -35,19 +33,20 @@
 (declaim (inline make-node))
 (defun init-node (height data)
   (make-node :data data
-	     :spans (make-array height :fill-pointer nil :adjustable nil :initial-element 0)
-	     :forwards (make-array height :fill-pointer nil :adjustable nil :initial-element nil)))
-
-(defun init-node-head (height)
-  (make-node :data nil
-	     :spans (make-array height :fill-pointer nil :adjustable nil :initial-element 0)
-	     :forwards (make-array height :fill-pointer nil :adjustable nil :initial-element nil)))
+	     :spans (make-array height
+				:fill-pointer nil
+				:adjustable nil
+				:initial-element 0)
+	     :forwards (make-array height
+				   :fill-pointer nil
+				   :adjustable nil
+				   :initial-element nil)))
 
 (defun init-skip-list (size &optional (preallocate nil))
   (let* ((height (truncate (+ 1 (log size +e+))))
 	 (skip-list (make-skip-list :height height
 				    :length 0
-				    :node-head (init-node-head height))))
+				    :node-head (init-node height nil))))
     ;; Preallocate nodes
     (when preallocate
       (loop
@@ -58,16 +57,17 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; TODO: Refactor outer loop code into loop
 (defun nth (sl-list i)
   (let ((node (sl-node-head sl-list)))
     (loop
        :for level :from (1- (sl-height sl-list)) :downto 0
-       :with x = -1
+       :with x := -1
        :do (loop
 	      :while (and (aref (ne-forwards node) level)
 			  (< (+ x (aref (ne-spans node) level)) i))
-	      :for spans = (ne-spans node)
-	      :for forwards = (ne-forwards node)
+	      :for spans := (ne-spans node)
+	      :for forwards := (ne-forwards node)
 	      :do (progn
 		    (incf x (aref spans level))
 		    (setf node (aref forwards level)))))
@@ -76,6 +76,7 @@
 	nil
 	node)))
 
+;; TODO: Use setf for below instead
 ;; Error on missing? -> Like list, return nil
 (defun get-nth-data (sl-list i)
   (let ((node (nth sl-list i)))
@@ -94,26 +95,21 @@
   (let* ((height (sl-height sl-list))
 	 (height-new (generate-random-level height))
          (node-new (init-node (+ height-new 1) data)))
-
-    ;; (when ( height-new )
-    ;; (format t "i: ~a, Height-max: ~a, Height-new: ~a~%" i height height-new)
     
-    ;; (incf (gethash height-new *tracker-sl*))
+    (incf (gethash height-new *tracker-sl*))
     
     (loop
        :for level :from (1- height) :downto 0
-       :with node = (sl-node-head sl-list) :and x = -1
+       :with node := (sl-node-head sl-list) :and x = -1
        :do (progn
-
-	     ;; (format t "Traversing level ~a...~%" level)
 	     
 	     ;; Find the backwards node (or node@i)
 	     ;; Search until node and span@level is less than index
 	     (loop
 		:while (and (aref (ne-forwards node) level)
 			    (< (+ x (aref (ne-spans node) level)) i))
-		:for spans = (ne-spans node)
-		:for forwards = (ne-forwards node)
+		:for spans := (ne-spans node)
+		:for forwards := (ne-forwards node)
 		:do (progn
 		      (incf x (aref spans level))
 		      (setf node (aref forwards level))))
@@ -179,7 +175,8 @@
 	       (setf (aref (ne-forwards node) level)
 		     (aref (ne-forwards (aref (ne-forwards node) level)) level))))
 
-       ;; Don't need this since we use fixed arrays instead of linked lists
+       ;; Don't need this since fixed arrays are used
+       ;; instead of linked lists
        ;; If prev node is sentinel then decrease max height
        ;; (when (and (equal node (sl-node-head sl-list))
        ;; 		  (aref (ne-forwards node) level))
@@ -197,7 +194,7 @@
   "Loops over the elements in `dlist', binding each to `var' in turn, then executing `body'."
   `(loop
       ;; Start at head+1
-      :for node = (aref (ne-forwards (sl-node-head ,skiplist)) 0) :then (aref (ne-forwards node) 0)
+      :for node := (aref (ne-forwards (sl-node-head ,skiplist)) 0) :then (aref (ne-forwards node) 0)
       :while node
       :do (let ((,var (ne-data node)))
 	    ,@body)))
@@ -207,6 +204,8 @@
 
 (defun dequeue (sl)
   (delete sl 0))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun init-sl-tracker (sl)
   (defparameter *tracker-sl* (make-hash-table :size (sl-height sl)))
@@ -220,90 +219,79 @@
 
   ;; 16 = ~64k
   ;; 20 = 1048576
-  (let* ((n 5) ;;(expt 2 3))
+  (let* ((n (expt 2 20))
 	 (sl (init-skip-list n)))
 
     (init-sl-tracker sl)
     
-    ;; Preallocate nodes
-    ;; (loop
-    ;;    :for i :from 0 :below n
-    ;;    :do (progn
-    ;; 	     (insert sl 0 "before")))
-    ;; (format t "~a~%" (sl-length sl))
-    
-    ;; Insert at end
-    ;; (loop :for i :from 0 :below n :do (progn
-    ;; 					(insert-sl sl i i)))
-    ;; (loop :for i :from 0 :below n :do (progn
-    ;; 					(delete-sl sl i)))
-    
     ;; Insert at beginning
     (when t
       (format t "Insert ~a elements...~%~%" n)
-      (loop :for i :from n :above 0
-	 :do (progn
-	       (insert sl 0 i)
-	       )))
+      (loop
+	 :for i :from n :above 0
+	 :do (insert sl 0 i)))
     (format t "Length: ~a~%" (sl-length sl))
 
-    (when nil
-      ;; 0.0000...
-      ;; 18, 11, 3
-      ;; 15, 11, 2
-      ;; 17, 14, 2
-      ;; 5 microseconds
-      (dotimes (i 8)
-	(time
-	 (format t "nth@~a: ~a~%" 1 (get-nth-data sl 1)))))
-    
-	;; (time
-	;;  (format t "nth@~a: ~a~%" (/ n 2) (get-nth-data sl (/ n 2))))
-	;; (time
-	;;  (format t "nth@~a: ~a~%" 1 (get-nth-data sl 1)))))
-
-    ;; iterate
-    (when nil
-      (dotimes (i 8)
-	;; 0.014293 seconds!
-	(time
-	 ;; create macro for this
-	 (loop
-	    :with node = (sl-node-head sl)
-	    :while (aref (ne-forwards node) 0)
-	    :for forwards = (ne-forwards node)
-	    :do (setf node (aref forwards 0))))))
-    
-    ;; Make nth zero based
-    (when nil
-      (format t "Before: ~a~%" (get-nth-data sl 1))
-      (set-nth-data sl 1 "hello")
-      (format t "After: ~a~%" (get-nth-data sl 1)))
-
+    ;; Print levels
     ;; level 0 is 100%
-    (when nil
+    (when t
       (format t "Level ~S : ~S nodes, ~a~a ~%"
 	      0
 	      n
 	      100.0
 	      #\%)
-      (loop :for key :being :the :hash-keys :of *tracker*
+      (loop
+	 :for key :being :the :hash-keys :of *tracker-sl*
 	 :using (hash-value value)
 	 :do (format t "Level ~S : ~S nodes, ~a~a ~%"
 		     key
 		     value
 		     (coerce (* (/ value n) 100) 'single-float)
 		     #\%)))
-
-    (format t "DOSKIPLIST:~%")
-    (doskiplist (i sl)
-		(format t "data: ~a~%" i))
     
+    ;; Test get-nth
+    (when nil
+      (dotimes (i 8)
+	(time
+	 (format t "nth@~a: ~a~%" 1 (get-nth-data sl n)))))
+
+    ;; Test set-nth
+    ;; TODO: Make nth zero based
+    (when nil
+      (format t "Before: ~a~%" (get-nth-data sl 1))
+      (set-nth-data sl 1 "hello")
+      (format t "After: ~a~%" (get-nth-data sl 1)))
+    
+    ;; Test macro
+    (when nil
+      (format t "DOSKIPLIST:~%")
+      (dotimes (i 8)
+	(time
+	 (doskiplist (i sl)
+		     ;; (format t "data: ~a~%" i)
+		     t))))
+
+    ;; Test iterate
+    ;; Move from node to node on 0 level
+    (when nil
+      (dotimes (i 8)
+	(time
+	 ;; Iterator - make macro
+	 (loop
+	    :with node := (sl-node-head sl)
+	    :while (aref (ne-forwards node) 0)
+	    :for forwards := (ne-forwards node)
+	    :do (setf node (aref forwards 0))))))
+
+    ;; Test delete
     (when t
       (format t "Delete ~a elements...~%~%" n)
-      (loop :for i :from 0 :below n
-	 :do (progn
-	       (delete sl 0)
-	       (format t "~a~%" (get-nth-data sl 1)))))
+      (time
+       (loop
+	  :for i :from 0 :below n
+	  :do (progn
+		(delete sl 0)))))
+      ;; (format t "~a~%" (get-nth-data sl 1))
+
     
     t))
