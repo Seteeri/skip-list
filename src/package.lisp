@@ -16,9 +16,11 @@
            #:insert
            #:delete
 	   #:nth
-           #:test
-
+	   #:doskiplist
+	   
 	   #:sl-length
 	   #:sl-node-head
 	   #:ne-forwards
-	   #:ne-data))
+	   #:ne-data
+
+	   #:test))

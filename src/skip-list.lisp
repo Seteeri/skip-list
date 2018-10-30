@@ -1,8 +1,10 @@
 (in-package #:skip-list)
 
+;; sbcl --eval "(progn (ql:quickload 'skip-list) (skip-list::test))"
+
 (declaim (optimize (speed 3) (debug 0) (safety 0)))
 
-;; sbcl --eval "(progn (ql:quickload 'skip-list) (skip-list::test))"
+(defconstant +e+ 2.71828)
 
 ;; Each node contains lanes which containers pointers to other nodes on that
 ;; respective level
@@ -11,7 +13,6 @@
   spans     ; dist to next node for each lane/level
   forwards) ; next nodes
 
-;; store top height?
 (defstruct (skip-list (:conc-name sl-))
   height     ; max height
   length
@@ -31,22 +32,19 @@
      :do (incf level)
      :finally (return-from generate-random-level level)))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 (declaim (inline make-node))
-(defun init-node (height i data)
+(defun init-node (height data)
   (make-node :data data
 	     :spans (make-array height :fill-pointer nil :adjustable nil :initial-element 0)
 	     :forwards (make-array height :fill-pointer nil :adjustable nil :initial-element nil)))
 
-;; Rename header
 (defun init-node-head (height)
   (make-node :data nil
 	     :spans (make-array height :fill-pointer nil :adjustable nil :initial-element 0)
 	     :forwards (make-array height :fill-pointer nil :adjustable nil :initial-element nil)))
 
 (defun init-skip-list (size &optional (preallocate nil))
-  (let* ((height (truncate (+ 1 (log size 2.71828))))
+  (let* ((height (truncate (+ 1 (log size +e+))))
 	 (skip-list (make-skip-list :height height
 				    :length 0
 				    :node-head (init-node-head height))))
@@ -55,6 +53,7 @@
       (loop
 	 :for i :from 0 :below size
 	 :do (insert skip-list 0 nil)))
+    
     skip-list))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -77,29 +76,29 @@
 	nil
 	node)))
 
-;; Raise error?
+;; Error on missing? -> Like list, return nil
 (defun get-nth-data (sl-list i)
-  (let ((n (nth sl-list i)))
-    (when n
-      (ne-data n))))
+  (let ((node (nth sl-list i)))
+    (when node
+      (ne-data node))))
 
 (defun set-nth-data (sl-list i data)
-  (let ((n (nth sl-list i)))
-    (when n
-      (setf (ne-data n) data))))
+  (let ((node (nth sl-list i)))
+    (when node
+      (setf (ne-data node) data))))
 
 (defun insert (sl-list i data)
+
+  ;; Create the new node then splice into existing nodes
   
   (let* ((height (sl-height sl-list))
 	 (height-new (generate-random-level height))
-         (node-new (init-node (+ height-new 1) i data)))
+         (node-new (init-node (+ height-new 1) data)))
 
     ;; (when ( height-new )
     ;; (format t "i: ~a, Height-max: ~a, Height-new: ~a~%" i height height-new)
     
     ;; (incf (gethash height-new *tracker-sl*))
-    
-    ;; Create the new node then splice into existing nodes
     
     (loop
        :for level :from (1- height) :downto 0
@@ -145,7 +144,7 @@
   ;; - Need to decrease each span by length of range
   
   (let ((node (sl-node-head sl-list))
-	(data nil))
+	(node-del nil))
     
     (loop
        :for level :from (1- (sl-height sl-list)) :downto 0
@@ -170,22 +169,38 @@
 			   i)
 			(aref (ne-forwards node) level))
 	       ;; x = u.next[r].x;
-	       ;; data = (data (aref (ne-forwards node) level))
+
+	       (setf node-del (aref (ne-forwards node) level))
+
 	       ;; Link span by span of rem node
 	       (incf (aref (ne-spans node) level)
 		     (aref (ne-spans (aref (ne-forwards node) level)) level))
 	       ;; Link forward node to forward node of rem node
 	       (setf (aref (ne-forwards node) level)
-		     (aref (ne-forwards (aref (ne-forwards node) level)) level)))))
+		     (aref (ne-forwards (aref (ne-forwards node) level)) level))))
 
-	       ;; Don't need this since we use fixed arrays instead of linked lists
-	       ;; If prev node is sentinel then decrease max height
-	       ;; (when (and (equal node (sl-node-head sl-list))
-	       ;; 		  (aref (ne-forwards node) level))
-	       ;; 	 (decf (sl-height sl-list)))
+       ;; Don't need this since we use fixed arrays instead of linked lists
+       ;; If prev node is sentinel then decrease max height
+       ;; (when (and (equal node (sl-node-head sl-list))
+       ;; 		  (aref (ne-forwards node) level))
+       ;; 	 (decf (sl-height sl-list)))
+
+       ;; Decrease when found = x is i-1
+       :finally (when (and node
+			   (= x (1- i))
+			   (not (eq node (sl-node-head sl-list))))
+		  (decf (sl-length sl-list))))
     
-    (decf (sl-length sl-list))
-    data))
+    node-del))
+
+(defmacro doskiplist ((var skiplist) &body body)
+  "Loops over the elements in `dlist', binding each to `var' in turn, then executing `body'."
+  `(loop
+      ;; Start at head+1
+      :for node = (aref (ne-forwards (sl-node-head ,skiplist)) 0) :then (aref (ne-forwards node) 0)
+      :while node
+      :do (let ((,var (ne-data node)))
+	    ,@body)))
 
 (defun enqueue (sl data)
   (insert sl 0 i))
@@ -199,7 +214,7 @@
      :do (setf (gethash i *tracker-sl*) 0)))
 
 (defun test ()
-  (declaim (optimize (speed 3) (debug 0) (safety 0)))
+  ;; (declaim (optimize (speed 3) (debug 0) (safety 0)))
   
   (setf *random-state* (make-random-state t))
 
@@ -280,6 +295,10 @@
 		     (coerce (* (/ value n) 100) 'single-float)
 		     #\%)))
 
+    (format t "DOSKIPLIST:~%")
+    (doskiplist (i sl)
+		(format t "data: ~a~%" i))
+    
     (when t
       (format t "Delete ~a elements...~%~%" n)
       (loop :for i :from 0 :below n
